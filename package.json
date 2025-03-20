@@ -1,0 +1,41 @@
+{
+  "name": "mcp-starter",
+  "displayName": "MCP Starter",
+  "description": "Model Context Protokollerini başlatır ve Copilot konfigürasyonunu ayarlar",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/username/mcp-starter.git"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "mcp-starter.startMCP",
+        "title": "MCP Başlat (Model Context Protocols)"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "node ./test/runTest.js",
+    "package": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.60.0",
+    "eslint": "^8.1.0",
+    "glob": "^7.2.0",
+    "mocha": "^9.1.3",
+    "@vscode/test-electron": "^1.6.2"
+  }
+}
