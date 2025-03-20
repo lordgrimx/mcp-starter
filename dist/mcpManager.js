@@ -46,6 +46,64 @@ class MCPManager {
         this.servers = [];
         this.clients = [];
         this.activeTerminals = new Map();
+        this.tools = [
+            {
+                name: 'ProcessManager',
+                description: 'MCP process yönetimi için kullanılan araç. Süreçleri başlatma, durdurma ve izleme imkanı sağlar.',
+                category: 'process',
+                icon: 'terminal',
+                metadata: {
+                    copilotTags: ['mcp', 'process', 'management', 'terminal'],
+                    examples: [
+                        'ProcessManager.start("myProcess")',
+                        'ProcessManager.stop("myProcess")',
+                        'ProcessManager.monitor()'
+                    ]
+                }
+            },
+            {
+                name: 'SSEClient',
+                description: 'Server-Sent Events bağlantılarını yöneten araç. Real-time veri akışı sağlar.',
+                category: 'network',
+                icon: 'plug',
+                metadata: {
+                    copilotTags: ['mcp', 'sse', 'events', 'streaming'],
+                    examples: [
+                        'SSEClient.connect("http://localhost:3000/sse")',
+                        'SSEClient.subscribe("eventName")',
+                        'SSEClient.disconnect()'
+                    ]
+                }
+            },
+            {
+                name: 'CommandRunner',
+                description: 'Shell komutlarını ve scriptleri çalıştırmak için kullanılan araç.',
+                category: 'process',
+                icon: 'terminal-cmd',
+                metadata: {
+                    copilotTags: ['mcp', 'command', 'shell', 'script'],
+                    examples: [
+                        'CommandRunner.execute("npm install")',
+                        'CommandRunner.runScript("build.sh")',
+                        'CommandRunner.background("watch")'
+                    ]
+                }
+            },
+            {
+                name: 'NetworkMonitor',
+                description: 'Ağ bağlantılarını ve olaylarını izleyen araç.',
+                category: 'network',
+                icon: 'network',
+                metadata: {
+                    copilotTags: ['mcp', 'network', 'monitoring', 'events'],
+                    examples: [
+                        'NetworkMonitor.watch("localhost:3000")',
+                        'NetworkMonitor.trackConnections()',
+                        'NetworkMonitor.analyze()'
+                    ]
+                }
+            }
+        ];
         this.context = context;
         this.serversProvider = new serverTreeDataProvider_1.ServerTreeDataProvider(this);
         this.clientsProvider = new clientTreeDataProvider_1.ClientTreeDataProvider(this);
@@ -92,10 +150,29 @@ class MCPManager {
         // Refresh the tree views
         this.refreshTreeViews();
     }
+    async updateGlobalSettings() {
+        try {
+            const config = vscode.workspace.getConfiguration();
+            // Update server and client configurations
+            await config.update('mcpmanager.servers', this.servers, vscode.ConfigurationTarget.Global);
+            await config.update('mcpmanager.clients', this.clients, vscode.ConfigurationTarget.Global);
+            // Update MCP tool settings
+            await config.update('mcpmanager.enableToolViews', true, vscode.ConfigurationTarget.Global);
+            await config.update('mcpmanager.showStatusBar', true, vscode.ConfigurationTarget.Global);
+            await config.update('mcpmanager.autoStartServers', false, vscode.ConfigurationTarget.Global);
+            await config.update('mcpmanager.logLevel', 'info', vscode.ConfigurationTarget.Global);
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Failed to update global settings: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
     saveServersAndClients() {
         // Save to storage
         this.context.globalState.update('mcpServers', this.servers);
         this.context.globalState.update('mcpClients', this.clients);
+        // Update both workspace and global settings
+        this.updateVSCodeSettings();
+        this.updateGlobalSettings();
         // Refresh the tree views
         this.refreshTreeViews();
     }
@@ -467,6 +544,9 @@ class MCPManager {
     }
     getClientsProvider() {
         return this.clientsProvider;
+    }
+    getTools() {
+        return this.tools;
     }
 }
 exports.MCPManager = MCPManager;

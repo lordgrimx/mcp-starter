@@ -35,93 +35,119 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MCPWebViewPanel = void 0;
 const vscode = __importStar(require("vscode"));
+const path = __importStar(require("path"));
 class MCPWebViewPanel {
-    static createOrShow(extensionUri, mcpManager) {
+    static createOrShow(extensionPath, mcpManager) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
-        // If we already have a panel, show it
         if (MCPWebViewPanel.currentPanel) {
             MCPWebViewPanel.currentPanel._panel.reveal(column);
             return;
         }
-        // Otherwise, create a new panel
+        MCPWebViewPanel._mcpManager = mcpManager;
         const panel = vscode.window.createWebviewPanel(MCPWebViewPanel.viewType, 'MCP Manager', column || vscode.ViewColumn.One, {
-            // Enable JavaScript in the webview
             enableScripts: true,
-            // Restrict the webview to only load resources from our extension
-            localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'resources')]
+            retainContextWhenHidden: true,
+            localResourceRoots: [
+                vscode.Uri.file(path.join(extensionPath, 'resources')),
+                vscode.Uri.file(path.join(extensionPath, 'src', 'webviews', 'resources'))
+            ]
         });
-        MCPWebViewPanel.currentPanel = new MCPWebViewPanel(panel, extensionUri, mcpManager);
+        MCPWebViewPanel.currentPanel = new MCPWebViewPanel(panel, extensionPath);
+        // Register the panel with VS Code's extension API
+        vscode.commands.executeCommand('setContext', 'mcpWebviewFocus', true);
+        // Register completion provider for MCP tools
+        vscode.languages.registerCompletionItemProvider('*', {
+            provideCompletionItems(document, position) {
+                const completionItems = [];
+                MCPWebViewPanel.tools.forEach(tool => {
+                    const item = new vscode.CompletionItem(tool.name, vscode.CompletionItemKind.Function);
+                    item.detail = tool.description;
+                    item.documentation = new vscode.MarkdownString(`MCP Tool: ${tool.name}\n\n${tool.description}`);
+                    completionItems.push(item);
+                });
+                return completionItems;
+            }
+        });
+        // Register hover provider for MCP tools
+        vscode.languages.registerHoverProvider('*', {
+            provideHover(document, position) {
+                const range = document.getWordRangeAtPosition(position);
+                if (!range) {
+                    return;
+                }
+                const word = document.getText(range);
+                const tool = MCPWebViewPanel.tools.find(t => t.name.toLowerCase() === word.toLowerCase());
+                if (tool) {
+                    return new vscode.Hover(`${tool.name}: ${tool.description}`);
+                }
+            }
+        });
+    }
+    constructor(panel, extensionPath) {
+        this._disposables = [];
+        this._panel = panel;
+        this._extensionPath = extensionPath;
+        this._update();
+        this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+        this._panel.onDidChangeViewState(e => {
+            if (this._panel.visible) {
+                this._update();
+            }
+            vscode.commands.executeCommand('setContext', 'mcpWebviewFocus', this._panel.visible);
+        }, null, this._disposables);
+        this._panel.webview.onDidReceiveMessage(async (message) => {
+            switch (message.command) {
+                case 'addServer':
+                    await MCPWebViewPanel._mcpManager.addServer();
+                    break;
+                case 'addClient':
+                    await MCPWebViewPanel._mcpManager.addClient();
+                    break;
+                case 'startServer':
+                    MCPWebViewPanel._mcpManager.startServer(message.serverId);
+                    break;
+                case 'stopServer':
+                    MCPWebViewPanel._mcpManager.stopServer(message.serverId);
+                    break;
+                case 'startClient':
+                    MCPWebViewPanel._mcpManager.startClient(message.clientId);
+                    break;
+                case 'stopClient':
+                    MCPWebViewPanel._mcpManager.stopClient(message.clientId);
+                    break;
+                case 'editServer':
+                    MCPWebViewPanel._mcpManager.editServer(message.data);
+                    break;
+                case 'editClient':
+                    MCPWebViewPanel._mcpManager.editClient(message.data);
+                    break;
+                case 'deleteServer':
+                    MCPWebViewPanel._mcpManager.deleteServer(message.serverId);
+                    break;
+                case 'deleteClient':
+                    MCPWebViewPanel._mcpManager.deleteClient(message.clientId);
+                    break;
+                case 'getServerDetails':
+                    const server = MCPWebViewPanel._mcpManager.getServerDetails(message.serverId);
+                    this._panel.webview.postMessage({ command: 'editServer', server });
+                    break;
+                case 'getClientDetails':
+                    const client = MCPWebViewPanel._mcpManager.getClientDetails(message.clientId);
+                    this._panel.webview.postMessage({ command: 'editClient', client });
+                    break;
+            }
+        }, null, this._disposables);
     }
     static refresh() {
         if (MCPWebViewPanel.currentPanel) {
             MCPWebViewPanel.currentPanel._update();
         }
     }
-    constructor(panel, extensionUri, mcpManager) {
-        this._disposables = [];
-        this._panel = panel;
-        this._extensionUri = extensionUri;
-        this._mcpManager = mcpManager;
-        // Set the webview's initial html content
-        this._update();
-        // Listen for when the panel is disposed
-        // This happens when the user closes the panel or when the panel is closed programmatically
-        this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
-        // Update the content based on view changes
-        this._panel.onDidChangeViewState(e => {
-            if (this._panel.visible) {
-                this._update();
-            }
-        }, null, this._disposables);
-        // Handle messages from the webview
-        this._panel.webview.onDidReceiveMessage(async (message) => {
-            switch (message.command) {
-                case 'addServer':
-                    await this._mcpManager.addServer();
-                    break;
-                case 'addClient':
-                    await this._mcpManager.addClient();
-                    break;
-                case 'startServer':
-                    this._mcpManager.startServer(message.serverId);
-                    break;
-                case 'stopServer':
-                    this._mcpManager.stopServer(message.serverId);
-                    break;
-                case 'startClient':
-                    this._mcpManager.startClient(message.clientId);
-                    break;
-                case 'stopClient':
-                    this._mcpManager.stopClient(message.clientId);
-                    break;
-                case 'editServer':
-                    this._mcpManager.editServer(message.data);
-                    break;
-                case 'editClient':
-                    this._mcpManager.editClient(message.data);
-                    break;
-                case 'deleteServer':
-                    this._mcpManager.deleteServer(message.serverId);
-                    break;
-                case 'deleteClient':
-                    this._mcpManager.deleteClient(message.clientId);
-                    break;
-                case 'getServerDetails':
-                    const server = this._mcpManager.getServerDetails(message.serverId);
-                    this._panel.webview.postMessage({ command: 'editServer', server });
-                    break;
-                case 'getClientDetails':
-                    const client = this._mcpManager.getClientDetails(message.clientId);
-                    this._panel.webview.postMessage({ command: 'editClient', client });
-                    break;
-            }
-        }, null, this._disposables);
-    }
     dispose() {
         MCPWebViewPanel.currentPanel = undefined;
-        // Clean up our resources
+        vscode.commands.executeCommand('setContext', 'mcpWebviewFocus', false);
         this._panel.dispose();
         while (this._disposables.length) {
             const x = this._disposables.pop();
@@ -132,67 +158,15 @@ class MCPWebViewPanel {
     }
     _update() {
         const webview = this._panel.webview;
-        this._panel.title = 'MCP Manager';
+        this._panel.title = "MCP Manager";
         this._panel.webview.html = this._getHtmlForWebview(webview);
     }
     _getHtmlForWebview(webview) {
-        const servers = this._mcpManager.getServers();
-        const clients = this._mcpManager.getClients();
-        // Create HTML representation of servers
-        const serversHtml = servers.map(server => {
-            return `
-                <div class="mcp-item ${server.isActive ? 'active' : ''}">
-                    <div class="mcp-item-header">
-                        <span class="mcp-item-name">${server.name}</span>
-                        <span class="mcp-item-type">${server.type}</span>
-                        <span class="mcp-item-status">${server.isActive ? 'Running' : 'Stopped'}</span>
-                    </div>
-                    <div class="mcp-item-details">
-                        <div class="mcp-item-command">${server.command}</div>
-                        <div class="mcp-item-actions">
-                            <button class="mcp-action-button ${server.isActive ? 'stop' : 'start'}" 
-                                    onclick="handleServerAction('${server.id}', ${server.isActive})">
-                                ${server.isActive ? 'Stop' : 'Start'}
-                            </button>
-                            <button class="mcp-action-button edit" onclick="editServer('${server.id}')">
-                                Edit
-                            </button>
-                            <button class="mcp-action-button delete" onclick="deleteServer('${server.id}')">
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        // Create HTML representation of clients
-        const clientsHtml = clients.map(client => {
-            return `
-                <div class="mcp-item ${client.isActive ? 'active' : ''}">
-                    <div class="mcp-item-header">
-                        <span class="mcp-item-name">${client.name}</span>
-                        <span class="mcp-item-type">${client.type}</span>
-                        <span class="mcp-item-status">${client.isActive ? 'Running' : 'Stopped'}</span>
-                    </div>
-                    <div class="mcp-item-details">
-                        <div class="mcp-item-command">${client.command}</div>
-                        <div class="mcp-item-actions">
-                            <button class="mcp-action-button ${client.isActive ? 'stop' : 'start'}" 
-                                    onclick="handleClientAction('${client.id}', ${client.isActive})">
-                                ${client.isActive ? 'Stop' : 'Start'}
-                            </button>
-                            <button class="mcp-action-button edit" onclick="editClient('${client.id}')">
-                                Edit
-                            </button>
-                            <button class="mcp-action-button delete" onclick="deleteClient('${client.id}')">
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        return `<!DOCTYPE html>
+        const servers = MCPWebViewPanel._mcpManager.getServers();
+        const clients = MCPWebViewPanel._mcpManager.getClients();
+        // HTML template
+        return `
+            <!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
@@ -422,6 +396,20 @@ class MCPWebViewPanel {
                     <div class="header">
                         <h1>MCP Manager</h1>
                     </div>
+                    <div class="tools-section">
+                        <h2>Available Tools</h2>
+                        <div class="tools-list">
+                            ${MCPWebViewPanel.tools.map(tool => `
+                                <div class="tool-item">
+                                    ${tool.icon ? `<i class="codicon codicon-${tool.icon}"></i>` : ''}
+                                    <div class="tool-info">
+                                        <h3>${tool.name}</h3>
+                                        <p>${tool.description}</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
                     <div class="panels-container">
                         <div class="panel">
                             <div class="panel-header">
@@ -429,7 +417,30 @@ class MCPWebViewPanel {
                                 <button class="add-button" onclick="addServer()">Add Server</button>
                             </div>
                             <div class="panel-content">
-                                ${serversHtml || '<div class="empty-message">No servers added yet.</div>'}
+                                ${servers.map(server => `
+                                    <div class="mcp-item ${server.isActive ? 'active' : ''}">
+                                        <div class="mcp-item-header">
+                                            <span class="mcp-item-name">${server.name}</span>
+                                            <span class="mcp-item-type">${server.type}</span>
+                                            <span class="mcp-item-status">${server.isActive ? 'Running' : 'Stopped'}</span>
+                                        </div>
+                                        <div class="mcp-item-details">
+                                            <div class="mcp-item-command">${server.command}</div>
+                                            <div class="mcp-item-actions">
+                                                <button class="mcp-action-button ${server.isActive ? 'stop' : 'start'}" 
+                                                        onclick="handleServerAction('${server.id}', ${server.isActive})">
+                                                    ${server.isActive ? 'Stop' : 'Start'}
+                                                </button>
+                                                <button class="mcp-action-button edit" onclick="editServer('${server.id}')">
+                                                    Edit
+                                                </button>
+                                                <button class="mcp-action-button delete" onclick="deleteServer('${server.id}')">
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('') || '<div class="empty-message">No servers added yet.</div>'}
                             </div>
                         </div>
                         <div class="divider"></div>
@@ -439,7 +450,30 @@ class MCPWebViewPanel {
                                 <button class="add-button" onclick="addClient()">Add Client</button>
                             </div>
                             <div class="panel-content">
-                                ${clientsHtml || '<div class="empty-message">No clients added yet.</div>'}
+                                ${clients.map(client => `
+                                    <div class="mcp-item ${client.isActive ? 'active' : ''}">
+                                        <div class="mcp-item-header">
+                                            <span class="mcp-item-name">${client.name}</span>
+                                            <span class="mcp-item-type">${client.type}</span>
+                                            <span class="mcp-item-status">${client.isActive ? 'Running' : 'Stopped'}</span>
+                                        </div>
+                                        <div class="mcp-item-details">
+                                            <div class="mcp-item-command">${client.command}</div>
+                                            <div class="mcp-item-actions">
+                                                <button class="mcp-action-button ${client.isActive ? 'stop' : 'start'}" 
+                                                        onclick="handleClientAction('${client.id}', ${client.isActive})">
+                                                    ${client.isActive ? 'Stop' : 'Start'}
+                                                </button>
+                                                <button class="mcp-action-button edit" onclick="editClient('${client.id}')">
+                                                    Edit
+                                                </button>
+                                                <button class="mcp-action-button delete" onclick="deleteClient('${client.id}')">
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('') || '<div class="empty-message">No clients added yet.</div>'}
                             </div>
                         </div>
                     </div>
@@ -709,9 +743,22 @@ class MCPWebViewPanel {
                     });
                 </script>
             </body>
-            </html>`;
+            </html>
+        `;
     }
 }
 exports.MCPWebViewPanel = MCPWebViewPanel;
-MCPWebViewPanel.viewType = 'mcpManager';
+MCPWebViewPanel.viewType = 'mcpWebView';
+MCPWebViewPanel.tools = [
+    {
+        name: 'Process Manager',
+        description: 'Start and stop processes',
+        icon: 'terminal'
+    },
+    {
+        name: 'SSE Client',
+        description: 'Connect to Server-Sent Events',
+        icon: 'plug'
+    }
+];
 //# sourceMappingURL=mcpWebViewPanel.js.map

@@ -69,6 +69,11 @@
       {
         "command": "mcpManager.stopClient",
         "title": "Stop Client"
+      },
+      {
+        "command": "mcpManager.showToolDetails",
+        "title": "Show MCP Tool Details",
+        "category": "MCP"
       }
     ],
     "viewsContainers": {
@@ -85,12 +90,20 @@
         {
           "id": "mcpServersView",
           "name": "Servers",
-          "icon": "resources/server.svg"
+          "icon": "resources/server.svg",
+          "contextualTitle": "MCP Servers"
         },
         {
           "id": "mcpClientsView",
           "name": "Clients",
-          "icon": "resources/client.svg"
+          "icon": "resources/client.svg",
+          "contextualTitle": "MCP Clients"
+        },
+        {
+          "id": "mcpToolsView",
+          "name": "Tools",
+          "icon": "resources/tools.svg",
+          "contextualTitle": "MCP Tools"
         }
       ]
     },
@@ -120,6 +133,93 @@
           "type": "array",
           "default": [],
           "description": "Stored MCP client configurations"
+        },
+        "mcpmanager.enableToolViews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable MCP tool views in the activity bar"
+        },
+        "mcpmanager.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show MCP status in the status bar"
+        },
+        "mcpmanager.autoStartServers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start servers when VS Code starts"
+        },
+        "mcpmanager.logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "Log level for MCP Manager"
+        },
+        "mcpmanager.tools": {
+          "type": "object",
+          "default": {
+            "ProcessManager": {
+              "enabled": true,
+              "shortcut": "mcp.process"
+            },
+            "SSEClient": {
+              "enabled": true,
+              "shortcut": "mcp.sse"
+            },
+            "CommandRunner": {
+              "enabled": true,
+              "shortcut": "mcp.cmd"
+            },
+            "NetworkMonitor": {
+              "enabled": true,
+              "shortcut": "mcp.net"
+            }
+          },
+          "description": "MCP tool configurations and shortcuts"
+        },
+        "mcp": {
+          "type": "object",
+          "properties": {
+            "inputs": {
+              "type": "array",
+              "default": [],
+              "description": "MCP input configurations"
+            },
+            "servers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "description": "The command to run the MCP server"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Command line arguments for the server"
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Environment variables for the server"
+                  }
+                }
+              },
+              "default": {},
+              "description": "MCP server configurations"
+            }
+          },
+          "default": {
+            "inputs": [],
+            "servers": {}
+          },
+          "description": "MCP settings"
         }
       }
     }
