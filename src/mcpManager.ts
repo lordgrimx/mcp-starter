@@ -2,19 +2,29 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { WebSocket, WebSocketServer } from 'ws';
 import { ServerTreeDataProvider } from './providers/serverTreeDataProvider';
 import { ClientTreeDataProvider } from './providers/clientTreeDataProvider';
 import { MCPServer, MCPServerType } from './models/mcpServer';
 import { MCPClient, MCPClientType } from './models/mcpClient';
 import { MCPWebViewPanel } from './webviews/mcpWebViewPanel';
 
-interface MCPSettings {
-    [key: string]: {
+interface MCPConfigSettings {
+    "mcpmanager.servers": Array<{
         name: string;
-        type: MCPServerType | MCPClientType;
+        type: MCPServerType;
         isActive: boolean;
         command: string;
-    };
+        id: string;
+    }>;
+    "mcpmanager.clients": Array<{
+        name: string;
+        type: MCPClientType;
+        isActive: boolean;
+        command: string;
+        id: string;
+    }>;
+    [key: string]: any;
 }
 
 export class MCPManager {
@@ -24,6 +34,7 @@ export class MCPManager {
     private serversProvider: ServerTreeDataProvider;
     private clientsProvider: ClientTreeDataProvider;
     private settingsPath: string;
+    private activeTerminals: Map<string, vscode.Terminal> = new Map();
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -34,22 +45,49 @@ export class MCPManager {
         this.settingsPath = path.join(
             os.homedir(),
             process.platform === 'darwin' 
-                ? 'Library/Application Support/Code - Insiders/User/settings.json'
+                ? 'Library/Application Support/Code/User/settings.json'
                 : process.platform === 'linux'
-                    ? '.config/Code - Insiders/User/settings.json'
-                    : 'AppData/Roaming/Code - Insiders/User/settings.json'
+                    ? '.config/Code/User/settings.json'
+                    : 'AppData/Roaming/Code/User/settings.json'
         );
         
         this.loadServersAndClients();
     }
 
     private loadServersAndClients() {
-        // Load from storage if available
-        const storedServers = this.context.globalState.get<MCPServer[]>('mcpServers', []);
-        const storedClients = this.context.globalState.get<MCPClient[]>('mcpClients', []);
+        try {
+            if (fs.existsSync(this.settingsPath)) {
+                const fileContent = fs.readFileSync(this.settingsPath, 'utf8');
+                const settings = JSON.parse(fileContent) as MCPConfigSettings;
 
-        this.servers = storedServers;
-        this.clients = storedClients;
+                // Load servers from settings
+                const savedServers = settings["mcpmanager.servers"] || [];
+                this.servers = savedServers.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    type: s.type,
+                    command: s.command,
+                    isActive: false // Always start as inactive
+                }));
+
+                // Load clients from settings
+                const savedClients = settings["mcpmanager.clients"] || [];
+                this.clients = savedClients.map(c => ({
+                    id: c.id,
+                    name: c.name,
+                    type: c.type,
+                    command: c.command,
+                    isActive: false // Always start as inactive
+                }));
+            }
+        } catch (error) {
+            // If there's an error reading settings, try loading from extension storage
+            const storedServers = this.context.globalState.get<MCPServer[]>('mcpServers', []);
+            const storedClients = this.context.globalState.get<MCPClient[]>('mcpClients', []);
+
+            this.servers = storedServers;
+            this.clients = storedClients;
+        }
 
         // Refresh the tree views
         this.refreshTreeViews();
@@ -72,52 +110,12 @@ export class MCPManager {
 
     private updateVSCodeSettings() {
         try {
-            if (fs.existsSync(this.settingsPath)) {
-                let settings: MCPSettings = {};
-                try {
-                    const fileContent = fs.readFileSync(this.settingsPath, 'utf8');
-                    const parsedSettings = JSON.parse(fileContent.trim());
-                    // Type assertion to handle existing non-MCP settings
-                    settings = parsedSettings as { [key: string]: any };
-                } catch (parseError) {
-                    vscode.window.showWarningMessage('Could not parse existing settings file, creating new settings.');
-                }
-                
-                // Clean up any existing MCP settings first
-                Object.keys(settings).forEach(key => {
-                    if (key.startsWith('mcp.')) {
-                        delete settings[key];
-                    }
-                });
-                
-                // Update settings based on clients
-                for (const client of this.clients) {
-                    const key = `mcp.client.${client.id}`;
-                    settings[key] = {
-                        name: client.name,
-                        type: client.type,
-                        isActive: client.isActive,
-                        command: client.command
-                    };
-                }
-
-                // Update settings based on servers
-                for (const server of this.servers) {
-                    const key = `mcp.server.${server.id}`;
-                    settings[key] = {
-                        name: server.name,
-                        type: server.type,
-                        isActive: server.isActive,
-                        command: server.command
-                    };
-                }
-                
-                // Write the settings file with proper formatting
-                fs.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 4));
-                vscode.window.showInformationMessage('VS Code settings updated successfully.');
-            } else {
-                vscode.window.showWarningMessage('VS Code settings.json file not found.');
-            }
+            // Update workspace settings instead of user settings
+            const config = vscode.workspace.getConfiguration('mcpmanager');
+            
+            config.update('servers', this.servers, vscode.ConfigurationTarget.Workspace);
+            config.update('clients', this.clients, vscode.ConfigurationTarget.Workspace);
+            
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to update VS Code settings: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -349,11 +347,62 @@ export class MCPManager {
                 const terminal = await this.startProcess(server.name, server.command);
                 if (terminal) {
                     server.isActive = true;
+                    this.activeTerminals.set(serverId, terminal);
                 }
             } else if (server.type === 'sse') {
-                // SSE connection logic would go here
-                vscode.window.showInformationMessage(`SSE connection to ${server.command} established.`);
-                server.isActive = true;
+                // WebSocket server implementation
+                const wsScript = `
+                    const WebSocket = require('ws');
+                    const port = ${server.command.split(':')[1] || 3000};
+                    
+                    const wss = new WebSocket.Server({ port });
+                    console.log(\`WebSocket Server running on ws://localhost:\${port}\`);
+                    
+                    wss.on('connection', (ws) => {
+                        console.log('New connection established');
+                        
+                        // Send welcome message
+                        ws.send(JSON.stringify({ type: 'connected', message: 'Server ready' }));
+                        
+                        // Setup heartbeat
+                        const heartbeat = setInterval(() => {
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'heartbeat', message: 'ping' }));
+                            }
+                        }, 5000);
+                        
+                        ws.on('message', (data) => {
+                            try {
+                                const message = JSON.parse(data.toString());
+                                console.log('Received:', message);
+                            } catch (e) {
+                                console.log('Received raw message:', data.toString());
+                            }
+                        });
+                        
+                        ws.on('close', () => {
+                            console.log('Client disconnected');
+                            clearInterval(heartbeat);
+                        });
+                        
+                        ws.on('error', (error) => {
+                            console.error('WebSocket error:', error);
+                        });
+                    });
+                    
+                    process.on('SIGINT', () => {
+                        wss.close(() => {
+                            console.log('Server closed');
+                            process.exit();
+                        });
+                    });
+                `;
+                
+                const terminal = await this.startProcess(server.name, `node -e "${wsScript.replace(/\n\s+/g, ' ')}"`);
+                if (terminal) {
+                    server.isActive = true;
+                    this.activeTerminals.set(serverId, terminal);
+                }
             }
 
             this.saveServersAndClients();
@@ -370,34 +419,70 @@ export class MCPManager {
             return;
         }
 
-        // Logic to stop the server (depends on implementation)
-        vscode.window.showInformationMessage(`Server ${server.name} stopped.`);
+        const terminal = this.activeTerminals.get(serverId);
+        if (terminal) {
+            terminal.dispose(); // Kill the terminal
+            this.activeTerminals.delete(serverId);
+        }
 
         server.isActive = false;
         this.saveServersAndClients();
         MCPWebViewPanel.refresh();
     }
 
-    public startClient(clientId: string) {
+    public async startClient(clientId: string) {
         const client = this.clients.find(c => c.id === clientId);
         if (!client) {
             vscode.window.showErrorMessage(`Client with ID ${clientId} not found.`);
             return;
         }
 
-        if (client.type === 'process') {
-            // Start the process using the command
-            const terminal = vscode.window.createTerminal(`MCP Client: ${client.name}`);
-            terminal.sendText(client.command);
-            terminal.show();
-        } else if (client.type === 'sse') {
-            // SSE connection logic would go here
-            vscode.window.showInformationMessage(`SSE connection to ${client.command} established.`);
-        }
+        try {
+            if (client.type === 'process') {
+                const terminal = await this.startProcess(client.name, client.command);
+                if (terminal) {
+                    client.isActive = true;
+                    this.activeTerminals.set(clientId, terminal);
+                }
+            } else if (client.type === 'sse') {
+                // Use the SSE client script from the workspace
+                const scriptPath = path.join(this.context.extensionPath, 'dist', 'scripts', 'wsClient.js');
+                if (!fs.existsSync(scriptPath)) {
+                    vscode.window.showErrorMessage(`SSE client script not found at ${scriptPath}`);
+                    return;
+                }
 
-        client.isActive = true;
-        this.saveServersAndClients();
-        MCPWebViewPanel.refresh();
+                // Ensure eventsource-parser is installed
+                if (!fs.existsSync(path.join(this.context.extensionPath, 'node_modules', 'eventsource-parser'))) {
+                    const npmInstall = await this.startProcess('npm install', 'npm install eventsource-parser');
+                    if (npmInstall) {
+                        await new Promise<void>((resolve) => {
+                            npmInstall.processId.then(pid => {
+                                if (pid) {
+                                    const interval = setInterval(() => {
+                                        if (fs.existsSync(path.join(this.context.extensionPath, 'node_modules', 'eventsource-parser'))) {
+                                            clearInterval(interval);
+                                            resolve();
+                                        }
+                                    }, 1000);
+                                }
+                            });
+                        });
+                    }
+                }
+
+                const terminal = await this.startProcess(client.name, `node "${scriptPath}" "${client.command}"`);
+                if (terminal) {
+                    client.isActive = true;
+                    this.activeTerminals.set(clientId, terminal);
+                }
+            }
+
+            this.saveServersAndClients();
+            MCPWebViewPanel.refresh();
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to start client: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 
     public stopClient(clientId: string) {
@@ -407,8 +492,11 @@ export class MCPManager {
             return;
         }
 
-        // Logic to stop the client (depends on implementation)
-        vscode.window.showInformationMessage(`Client ${client.name} stopped.`);
+        const terminal = this.activeTerminals.get(clientId);
+        if (terminal) {
+            terminal.dispose(); // Kill the terminal
+            this.activeTerminals.delete(clientId);
+        }
 
         client.isActive = false;
         this.saveServersAndClients();
