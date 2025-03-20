@@ -96,6 +96,26 @@ class MCPWebViewPanel {
                 case 'stopClient':
                     this._mcpManager.stopClient(message.clientId);
                     break;
+                case 'editServer':
+                    this._mcpManager.editServer(message.data);
+                    break;
+                case 'editClient':
+                    this._mcpManager.editClient(message.data);
+                    break;
+                case 'deleteServer':
+                    this._mcpManager.deleteServer(message.serverId);
+                    break;
+                case 'deleteClient':
+                    this._mcpManager.deleteClient(message.clientId);
+                    break;
+                case 'getServerDetails':
+                    const server = this._mcpManager.getServerDetails(message.serverId);
+                    this._panel.webview.postMessage({ command: 'editServer', server });
+                    break;
+                case 'getClientDetails':
+                    const client = this._mcpManager.getClientDetails(message.clientId);
+                    this._panel.webview.postMessage({ command: 'editClient', client });
+                    break;
             }
         }, null, this._disposables);
     }
@@ -129,10 +149,18 @@ class MCPWebViewPanel {
                     </div>
                     <div class="mcp-item-details">
                         <div class="mcp-item-command">${server.command}</div>
-                        <button class="mcp-action-button ${server.isActive ? 'stop' : 'start'}" 
-                                onclick="handleServerAction('${server.id}', ${server.isActive})">
-                            ${server.isActive ? 'Stop' : 'Start'}
-                        </button>
+                        <div class="mcp-item-actions">
+                            <button class="mcp-action-button ${server.isActive ? 'stop' : 'start'}" 
+                                    onclick="handleServerAction('${server.id}', ${server.isActive})">
+                                ${server.isActive ? 'Stop' : 'Start'}
+                            </button>
+                            <button class="mcp-action-button edit" onclick="editServer('${server.id}')">
+                                Edit
+                            </button>
+                            <button class="mcp-action-button delete" onclick="deleteServer('${server.id}')">
+                                Delete
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -148,10 +176,18 @@ class MCPWebViewPanel {
                     </div>
                     <div class="mcp-item-details">
                         <div class="mcp-item-command">${client.command}</div>
-                        <button class="mcp-action-button ${client.isActive ? 'stop' : 'start'}" 
-                                onclick="handleClientAction('${client.id}', ${client.isActive})">
-                            ${client.isActive ? 'Stop' : 'Start'}
-                        </button>
+                        <div class="mcp-item-actions">
+                            <button class="mcp-action-button ${client.isActive ? 'stop' : 'start'}" 
+                                    onclick="handleClientAction('${client.id}', ${client.isActive})">
+                                ${client.isActive ? 'Stop' : 'Start'}
+                            </button>
+                            <button class="mcp-action-button edit" onclick="editClient('${client.id}')">
+                                Edit
+                            </button>
+                            <button class="mcp-action-button delete" onclick="deleteClient('${client.id}')">
+                                Delete
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -311,6 +347,74 @@ class MCPWebViewPanel {
                             height: auto;
                         }
                     }
+
+                    .modal {
+                        display: none;
+                        position: fixed;
+                        z-index: 1;
+                        left: 0;
+                        top: 0;
+                        width: 100%;
+                        height: 100%;
+                        background-color: rgba(0,0,0,0.4);
+                    }
+
+                    .modal-content {
+                        background-color: var(--vscode-editor-background);
+                        margin: 15% auto;
+                        padding: 20px;
+                        border: 1px solid var(--vscode-widget-border);
+                        width: 80%;
+                        max-width: 500px;
+                        border-radius: 4px;
+                    }
+
+                    .form-group {
+                        margin-bottom: 15px;
+                    }
+
+                    .form-group label {
+                        display: block;
+                        margin-bottom: 5px;
+                    }
+
+                    .form-group input, .form-group select {
+                        width: 100%;
+                        padding: 8px;
+                        background: var(--vscode-input-background);
+                        color: var(--vscode-input-foreground);
+                        border: 1px solid var(--vscode-input-border);
+                        border-radius: 2px;
+                    }
+
+                    .modal-buttons {
+                        display: flex;
+                        justify-content: flex-end;
+                        gap: 10px;
+                        margin-top: 20px;
+                    }
+
+                    .mcp-item-actions {
+                        display: flex;
+                        gap: 5px;
+                    }
+
+                    .mcp-action-button.edit {
+                        background-color: var(--vscode-button-secondaryBackground);
+                        color: var(--vscode-button-secondaryForeground);
+                    }
+
+                    .mcp-action-button.delete {
+                        background-color: var(--vscode-errorForeground);
+                        color: var(--vscode-button-foreground);
+                    }
+
+                    .close {
+                        float: right;
+                        cursor: pointer;
+                        font-size: 20px;
+                    }
+
                 </style>
             </head>
             <body>
@@ -341,20 +445,202 @@ class MCPWebViewPanel {
                     </div>
                 </div>
 
+                <!-- Add Server Modal -->
+                <div id="addServerModal" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="closeModal('addServerModal')">&times;</span>
+                        <h2>Add Server</h2>
+                        <form id="addServerForm">
+                            <div class="form-group">
+                                <label for="serverName">Name:</label>
+                                <input type="text" id="serverName" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="serverType">Type:</label>
+                                <select id="serverType" required>
+                                    <option value="process">Process</option>
+                                    <option value="sse">SSE</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="serverCommand">Command/URL:</label>
+                                <input type="text" id="serverCommand" required>
+                            </div>
+                            <div class="modal-buttons">
+                                <button type="button" onclick="closeModal('addServerModal')" class="mcp-action-button">Cancel</button>
+                                <button type="submit" class="mcp-action-button start">Add Server</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Add Client Modal -->
+                <div id="addClientModal" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="closeModal('addClientModal')">&times;</span>
+                        <h2>Add Client</h2>
+                        <form id="addClientForm">
+                            <div class="form-group">
+                                <label for="clientName">Name:</label>
+                                <input type="text" id="clientName" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="clientType">Type:</label>
+                                <select id="clientType" required>
+                                    <option value="process">Process</option>
+                                    <option value="sse">SSE</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="clientCommand">Command/URL:</label>
+                                <input type="text" id="clientCommand" required>
+                            </div>
+                            <div class="modal-buttons">
+                                <button type="button" onclick="closeModal('addClientModal')" class="mcp-action-button">Cancel</button>
+                                <button type="submit" class="mcp-action-button start">Add Client</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Edit Server Modal -->
+                <div id="editServerModal" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="closeModal('editServerModal')">&times;</span>
+                        <h2>Edit Server</h2>
+                        <form id="editServerForm">
+                            <input type="hidden" id="editServerId">
+                            <div class="form-group">
+                                <label for="editServerName">Name:</label>
+                                <input type="text" id="editServerName" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editServerType">Type:</label>
+                                <select id="editServerType" required>
+                                    <option value="process">Process</option>
+                                    <option value="sse">SSE</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="editServerCommand">Command/URL:</label>
+                                <input type="text" id="editServerCommand" required>
+                            </div>
+                            <div class="modal-buttons">
+                                <button type="button" onclick="closeModal('editServerModal')" class="mcp-action-button">Cancel</button>
+                                <button type="submit" class="mcp-action-button start">Save Changes</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Edit Client Modal -->
+                <div id="editClientModal" class="modal">
+                    <div class="modal-content">
+                        <span class="close" onclick="closeModal('editClientModal')">&times;</span>
+                        <h2>Edit Client</h2>
+                        <form id="editClientForm">
+                            <input type="hidden" id="editClientId">
+                            <div class="form-group">
+                                <label for="editClientName">Name:</label>
+                                <input type="text" id="editClientName" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="editClientType">Type:</label>
+                                <select id="editClientType" required>
+                                    <option value="process">Process</option>
+                                    <option value="sse">SSE</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="editClientCommand">Command/URL:</label>
+                                <input type="text" id="editClientCommand" required>
+                            </div>
+                            <div class="modal-buttons">
+                                <button type="button" onclick="closeModal('editClientModal')" class="mcp-action-button">Cancel</button>
+                                <button type="submit" class="mcp-action-button start">Save Changes</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
                 <script>
                     const vscode = acquireVsCodeApi();
 
+                    function showModal(modalId) {
+                        document.getElementById(modalId).style.display = "block";
+                    }
+
+                    function closeModal(modalId) {
+                        document.getElementById(modalId).style.display = "none";
+                    }
+
                     function addServer() {
-                        vscode.postMessage({
-                            command: 'addServer'
-                        });
+                        showModal('addServerModal');
                     }
 
                     function addClient() {
-                        vscode.postMessage({
-                            command: 'addClient'
-                        });
+                        showModal('addClientModal');
                     }
+
+                    document.getElementById('addServerForm').addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const data = {
+                            name: document.getElementById('serverName').value,
+                            type: document.getElementById('serverType').value,
+                            command: document.getElementById('serverCommand').value
+                        };
+                        vscode.postMessage({
+                            command: 'addServer',
+                            data: data
+                        });
+                        closeModal('addServerModal');
+                        this.reset();
+                    });
+
+                    document.getElementById('addClientForm').addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const data = {
+                            name: document.getElementById('clientName').value,
+                            type: document.getElementById('clientType').value,
+                            command: document.getElementById('clientCommand').value
+                        };
+                        vscode.postMessage({
+                            command: 'addClient',
+                            data: data
+                        });
+                        closeModal('addClientModal');
+                        this.reset();
+                    });
+
+                    document.getElementById('editServerForm').addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const data = {
+                            id: document.getElementById('editServerId').value,
+                            name: document.getElementById('editServerName').value,
+                            type: document.getElementById('editServerType').value,
+                            command: document.getElementById('editServerCommand').value
+                        };
+                        vscode.postMessage({
+                            command: 'editServer',
+                            data: data
+                        });
+                        closeModal('editServerModal');
+                    });
+
+                    document.getElementById('editClientForm').addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const data = {
+                            id: document.getElementById('editClientId').value,
+                            name: document.getElementById('editClientName').value,
+                            type: document.getElementById('editClientType').value,
+                            command: document.getElementById('editClientCommand').value
+                        };
+                        vscode.postMessage({
+                            command: 'editClient',
+                            data: data
+                        });
+                        closeModal('editClientModal');
+                    });
 
                     function handleServerAction(serverId, isActive) {
                         vscode.postMessage({
@@ -369,6 +655,58 @@ class MCPWebViewPanel {
                             clientId: clientId
                         });
                     }
+
+                    function editServer(serverId) {
+                        vscode.postMessage({
+                            command: 'getServerDetails',
+                            serverId: serverId
+                        });
+                    }
+
+                    function editClient(clientId) {
+                        vscode.postMessage({
+                            command: 'getClientDetails',
+                            clientId: clientId
+                        });
+                    }
+
+                    function deleteServer(serverId) {
+                        if (confirm('Are you sure you want to delete this server?')) {
+                            vscode.postMessage({
+                                command: 'deleteServer',
+                                serverId: serverId
+                            });
+                        }
+                    }
+
+                    function deleteClient(clientId) {
+                        if (confirm('Are you sure you want to delete this client?')) {
+                            vscode.postMessage({
+                                command: 'deleteClient',
+                                clientId: clientId
+                            });
+                        }
+                    }
+
+                    window.addEventListener('message', event => {
+                        const message = event.data;
+                        switch (message.command) {
+                            case 'editServer':
+                                document.getElementById('editServerId').value = message.server.id;
+                                document.getElementById('editServerName').value = message.server.name;
+                                document.getElementById('editServerType').value = message.server.type;
+                                document.getElementById('editServerCommand').value = message.server.command;
+                                showModal('editServerModal');
+                                break;
+                            case 'editClient':
+                                document.getElementById('editClientId').value = message.client.id;
+                                document.getElementById('editClientName').value = message.client.name;
+                                document.getElementById('editClientType').value = message.client.type;
+                                document.getElementById('editClientCommand').value = message.client.command;
+                                showModal('editClientModal');
+                                break;
+                        }
+                    });
                 </script>
             </body>
             </html>`;

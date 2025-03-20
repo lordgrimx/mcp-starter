@@ -8,6 +8,15 @@ import { MCPServer, MCPServerType } from './models/mcpServer';
 import { MCPClient, MCPClientType } from './models/mcpClient';
 import { MCPWebViewPanel } from './webviews/mcpWebViewPanel';
 
+interface MCPSettings {
+    [key: string]: {
+        name: string;
+        type: MCPServerType | MCPClientType;
+        isActive: boolean;
+        command: string;
+    };
+}
+
 export class MCPManager {
     private servers: MCPServer[] = [];
     private clients: MCPClient[] = [];
@@ -64,30 +73,71 @@ export class MCPManager {
     private updateVSCodeSettings() {
         try {
             if (fs.existsSync(this.settingsPath)) {
-                let settings = JSON.parse(fs.readFileSync(this.settingsPath, 'utf8'));
+                let settings: MCPSettings = {};
+                try {
+                    const fileContent = fs.readFileSync(this.settingsPath, 'utf8');
+                    const parsedSettings = JSON.parse(fileContent.trim());
+                    // Type assertion to handle existing non-MCP settings
+                    settings = parsedSettings as { [key: string]: any };
+                } catch (parseError) {
+                    vscode.window.showWarningMessage('Could not parse existing settings file, creating new settings.');
+                }
+                
+                // Clean up any existing MCP settings first
+                Object.keys(settings).forEach(key => {
+                    if (key.startsWith('mcp.')) {
+                        delete settings[key];
+                    }
+                });
                 
                 // Update settings based on clients
                 for (const client of this.clients) {
-                    // Example: add a property for each client
-                    settings[`mcp.client.${client.id}`] = {
+                    const key = `mcp.client.${client.id}`;
+                    settings[key] = {
                         name: client.name,
                         type: client.type,
                         isActive: client.isActive,
-                        // Add other relevant client properties
+                        command: client.command
+                    };
+                }
+
+                // Update settings based on servers
+                for (const server of this.servers) {
+                    const key = `mcp.server.${server.id}`;
+                    settings[key] = {
+                        name: server.name,
+                        type: server.type,
+                        isActive: server.isActive,
+                        command: server.command
                     };
                 }
                 
-                fs.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 4), 'utf8');
+                // Write the settings file with proper formatting
+                fs.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 4));
                 vscode.window.showInformationMessage('VS Code settings updated successfully.');
             } else {
                 vscode.window.showWarningMessage('VS Code settings.json file not found.');
             }
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to update VS Code settings: ${error}`);
+            vscode.window.showErrorMessage(`Failed to update VS Code settings: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
-    public async addServer() {
+    public async addServer(data?: { name: string; type: MCPServerType; command: string }) {
+        if (data) {
+            const newServer: MCPServer = {
+                id: Date.now().toString(),
+                name: data.name,
+                type: data.type,
+                command: data.command,
+                isActive: false
+            };
+
+            this.servers.push(newServer);
+            this.saveServersAndClients();
+            MCPWebViewPanel.refresh();
+            return;
+        }
         const serverName = await vscode.window.showInputBox({
             prompt: 'Enter a name for the server',
             placeHolder: 'Server Name'
@@ -137,7 +187,21 @@ export class MCPManager {
         MCPWebViewPanel.refresh();
     }
 
-    public async addClient() {
+    public async addClient(data?: { name: string; type: MCPClientType; command: string }) {
+        if (data) {
+            const newClient: MCPClient = {
+                id: Date.now().toString(),
+                name: data.name,
+                type: data.type,
+                command: data.command,
+                isActive: false
+            };
+
+            this.clients.push(newClient);
+            this.saveServersAndClients();
+            MCPWebViewPanel.refresh();
+            return;
+        }
         const clientName = await vscode.window.showInputBox({
             prompt: 'Enter a name for the client',
             placeHolder: 'Client Name'
@@ -185,6 +249,80 @@ export class MCPManager {
         this.clients.push(newClient);
         this.saveServersAndClients();
         MCPWebViewPanel.refresh();
+    }
+
+    public editServer(data: { id: string; name: string; type: MCPServerType; command: string }) {
+        const serverIndex = this.servers.findIndex(s => s.id === data.id);
+        if (serverIndex === -1) {
+            vscode.window.showErrorMessage(`Server with ID ${data.id} not found.`);
+            return;
+        }
+
+        const isActive = this.servers[serverIndex].isActive;
+        this.servers[serverIndex] = {
+            ...data,
+            isActive
+        };
+
+        this.saveServersAndClients();
+        MCPWebViewPanel.refresh();
+    }
+
+    public editClient(data: { id: string; name: string; type: MCPClientType; command: string }) {
+        const clientIndex = this.clients.findIndex(c => c.id === data.id);
+        if (clientIndex === -1) {
+            vscode.window.showErrorMessage(`Client with ID ${data.id} not found.`);
+            return;
+        }
+
+        const isActive = this.clients[clientIndex].isActive;
+        this.clients[clientIndex] = {
+            ...data,
+            isActive
+        };
+
+        this.saveServersAndClients();
+        MCPWebViewPanel.refresh();
+    }
+
+    public deleteServer(serverId: string) {
+        const serverIndex = this.servers.findIndex(s => s.id === serverId);
+        if (serverIndex === -1) {
+            vscode.window.showErrorMessage(`Server with ID ${serverId} not found.`);
+            return;
+        }
+
+        if (this.servers[serverIndex].isActive) {
+            this.stopServer(serverId);
+        }
+
+        this.servers.splice(serverIndex, 1);
+        this.saveServersAndClients();
+        MCPWebViewPanel.refresh();
+    }
+
+    public deleteClient(clientId: string) {
+        const clientIndex = this.clients.findIndex(c => c.id === clientId);
+        if (clientIndex === -1) {
+            vscode.window.showErrorMessage(`Client with ID ${clientId} not found.`);
+            return;
+        }
+
+        if (this.clients[clientIndex].isActive) {
+            this.stopClient(clientId);
+        }
+
+        this.clients.splice(clientIndex, 1);
+        this.saveServersAndClients();
+        MCPWebViewPanel.refresh();
+    }
+
+    public getServerDetails(serverId: string) {
+        return this.servers.find(s => s.id === serverId);
+    }
+
+    public getClientDetails(clientId: string) {
+        return this.clients.find(c => c.id === clientId);
     }
 
     private async startProcess(name: string, command: string): Promise<vscode.Terminal | undefined> {
