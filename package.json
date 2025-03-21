@@ -1,0 +1,75 @@
+{
+  "name": "mcpstore",
+  "displayName": "MCP Manager",
+  "description": "Model Context Protocol yönetim uygulaması",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization",
+    "Machine Learning"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mcpstore.openDashboard",
+        "title": "MCP Dashboard'u Aç"
+      },
+      {
+        "command": "mcpstore.createServer",
+        "title": "Yeni MCP Sunucusu Oluştur"
+      },
+      {
+        "command": "mcpstore.manageServers",
+        "title": "MCP Sunucularını Yönet"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mcp-explorer",
+          "title": "MCP Yöneticisi",
+          "icon": "resources/mcp-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "mcp-explorer": [
+        {
+          "id": "mcpServers",
+          "name": "MCP Sunucuları"
+        },
+        {
+          "id": "mcpTools",
+          "name": "MCP Araçları"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "18.x",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
+    "@vscode/test-electron": "^2.3.8"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+} 
