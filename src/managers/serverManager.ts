@@ -54,10 +54,18 @@ export class MCPServerManager {
             server.status = response.status === 200 ? 'online' : 'offline';
             server.lastCheck = new Date();
             await this.saveServers();
-        } catch (error) {
+        } catch (error: unknown) {
+            // Properly type the error and handle it
             server.status = 'offline';
             server.lastCheck = new Date();
             await this.saveServers();
+            
+            // Optional: Log the error with proper typing
+            if (error instanceof Error) {
+                console.error(`Server check failed: ${error.message}`);
+            } else {
+                console.error(`Server check failed with unknown error`);
+            }
         }
     }
 
@@ -66,4 +74,4 @@ export class MCPServerManager {
             await this.checkServerStatus(server);
         }
     }
-} 
+}

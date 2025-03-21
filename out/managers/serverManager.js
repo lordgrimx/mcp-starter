@@ -46,9 +46,17 @@ class MCPServerManager {
             await this.saveServers();
         }
         catch (error) {
+            // Properly type the error and handle it
             server.status = 'offline';
             server.lastCheck = new Date();
             await this.saveServers();
+            // Optional: Log the error with proper typing
+            if (error instanceof Error) {
+                console.error(`Server check failed: ${error.message}`);
+            }
+            else {
+                console.error(`Server check failed with unknown error`);
+            }
         }
     }
     async checkAllServers() {

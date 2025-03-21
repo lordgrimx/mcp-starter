@@ -25,18 +25,26 @@ export function activate(context: vscode.ExtensionContext) {
     let createServer = vscode.commands.registerCommand('mcpstore.createServer', async () => {
         const serverName = await vscode.window.showInputBox({
             prompt: 'Yeni MCP sunucusu için isim girin',
-            placeHolder: 'örn: Yerel MCP Sunucusu'
+            placeHolder: 'örn: Yerel MCP Sunucusu',
+            ignoreFocusOut: true
         });
 
         if (serverName) {
             const serverUrl = await vscode.window.showInputBox({
                 prompt: 'Sunucu URL\'ini girin',
-                placeHolder: 'örn: http://localhost:8000'
+                placeHolder: 'örn: http://localhost:8000',
+                ignoreFocusOut: true
             });
 
             if (serverUrl) {
-                await serverManager.addServer(serverName, serverUrl);
-                serversProvider.refresh();
+                try {
+                    await serverManager.addServer(serverName, serverUrl);
+                    serversProvider.refresh();
+                    vscode.window.showInformationMessage(`${serverName} sunucusu başarıyla eklendi!`);
+                } catch (error: any) {
+                    const errorMessage = error?.message || 'Bilinmeyen bir hata oluştu';
+                    vscode.window.showErrorMessage(`Sunucu eklenirken bir hata oluştu: ${errorMessage}`);
+                }
             }
         }
     });

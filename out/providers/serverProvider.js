@@ -50,7 +50,9 @@ class MCPServerProvider {
     async getChildren(element) {
         if (!element) {
             const servers = await this.serverManager.getServers();
-            return servers.map(server => new MCPServerItem(server.name, server.url, vscode.TreeItemCollapsibleState.None));
+            const serverItems = servers.map(server => new MCPServerItem(server.name, server.url, vscode.TreeItemCollapsibleState.None));
+            const addServerItem = new AddServerItem();
+            return [...serverItems, addServerItem];
         }
         return [];
     }
@@ -66,6 +68,18 @@ class MCPServerItem extends vscode.TreeItem {
         this.description = this.url;
         this.iconPath = new vscode.ThemeIcon('server');
         this.contextValue = 'mcpServer';
+    }
+}
+class AddServerItem extends vscode.TreeItem {
+    constructor() {
+        super('Sunucu Ekle', vscode.TreeItemCollapsibleState.None);
+        this.iconPath = new vscode.ThemeIcon('add');
+        this.contextValue = 'addServer';
+        this.command = {
+            command: 'mcpstore.createServer',
+            title: 'Sunucu Ekle',
+            tooltip: 'Yeni MCP sunucusu ekle'
+        };
     }
 }
 //# sourceMappingURL=serverProvider.js.map

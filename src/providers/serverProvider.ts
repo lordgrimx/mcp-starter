@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 import { MCPServerManager } from '../managers/serverManager';
 
-export class MCPServerProvider implements vscode.TreeDataProvider<MCPServerItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<MCPServerItem | undefined | null | void> = new vscode.EventEmitter<MCPServerItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<MCPServerItem | undefined | null | void> = this._onDidChangeTreeData.event;
+// Create a base type for server tree items
+type ServerTreeItem = MCPServerItem | AddServerItem;
+
+export class MCPServerProvider implements vscode.TreeDataProvider<ServerTreeItem> {
+    private _onDidChangeTreeData: vscode.EventEmitter<ServerTreeItem | undefined | null | void> = new vscode.EventEmitter<ServerTreeItem | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<ServerTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     constructor(private serverManager: MCPServerManager) {}
 
@@ -11,14 +14,16 @@ export class MCPServerProvider implements vscode.TreeDataProvider<MCPServerItem>
         this._onDidChangeTreeData.fire();
     }
 
-    getTreeItem(element: MCPServerItem): vscode.TreeItem {
+    getTreeItem(element: ServerTreeItem): vscode.TreeItem {
         return element;
     }
 
-    async getChildren(element?: MCPServerItem): Promise<MCPServerItem[]> {
+    async getChildren(element?: ServerTreeItem): Promise<ServerTreeItem[]> {
         if (!element) {
             const servers = await this.serverManager.getServers();
-            return servers.map(server => new MCPServerItem(server.name, server.url, vscode.TreeItemCollapsibleState.None));
+            const serverItems = servers.map(server => new MCPServerItem(server.name, server.url, vscode.TreeItemCollapsibleState.None));
+            const addServerItem = new AddServerItem();
+            return [...serverItems, addServerItem];
         }
         return [];
     }
@@ -36,4 +41,17 @@ class MCPServerItem extends vscode.TreeItem {
         this.iconPath = new vscode.ThemeIcon('server');
         this.contextValue = 'mcpServer';
     }
-} 
+}
+
+class AddServerItem extends vscode.TreeItem {
+    constructor() {
+        super('Sunucu Ekle', vscode.TreeItemCollapsibleState.None);
+        this.iconPath = new vscode.ThemeIcon('add');
+        this.contextValue = 'addServer';
+        this.command = {
+            command: 'mcpstore.createServer',
+            title: 'Sunucu Ekle',
+            tooltip: 'Yeni MCP sunucusu ekle'
+        };
+    }
+}
